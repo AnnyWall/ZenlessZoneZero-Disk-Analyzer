@@ -1,0 +1,6 @@
+Flask
+enka
+requests
+customtkinter
+pywinstyles
+Pillow
