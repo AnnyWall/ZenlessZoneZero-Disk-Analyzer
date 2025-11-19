@@ -1,63 +1,158 @@
-# ZZZ Showcase Profiler
+# ⚡ ZZZ Profiler
 
+Красивое desktop-приложение для анализа профилей игроков Zenless Zone Zero с неоновым дизайном.
 
-### English Description
+![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-Desktop application for viewing and analyzing player profiles in **Zenless Zone Zero**. It allows you to evaluate agent builds and rate the quality of their Discs based on a customizable weighting system.
+## 🎮 Возможности
 
-## ✨ Features
+- **Детальный анализ агентов**: просмотр характеристик, навыков, W-Engine и дисков
+- **Система рейтингов**: автоматическая оценка качества дисков (SS, S, A, B, C, D)
+- **Визуализация прогресса**: Mindscape (созвездия) и Core Skills (пассивные навыки)
+- **Неоновый дизайн**: современный киберпанк интерфейс с цветовой индикацией
+- **Оптимизированная производительность**: плавная работа и быстрая загрузка
 
-*   **Disk Rating:** Automatically calculates a score and a rank (SS, S, A...) for every equipped Disc.
-*   **Detailed Information:** View all agent stats, W-Engine, skill levels, Mindscape, and Core Skill progression.
-*   **Modern UI:** A beautiful, custom-themed interface.
-*   **Standalone:** No need to install Python or any libraries. Just download and run.
+## 📸 Скриншоты
 
-## 🚀 How to Run (for Users)
+*Скриншоты будут добавлены позже*
 
-1.  **Go to the [Releases page](https://github.com/AnnyWall/ZenlessZoneZero-Disk-Analyzer/releases).** 
-2.  Under the "Assets" section of the latest release, download the `ZZZ_Profiler_v1.0.zip` file.
-3.  Unzip the archive into any folder.
-4.  Double-click `ZZZ_Profiler.exe` to start the application.
+## 🚀 Установка
+
+### Требования
+
+- Python 3.10 или выше
+- Windows / Linux / macOS
+
+### Установка зависимостей
+
+```bash
+# Клонируйте репозиторий
+git clone https://github.com/yourusername/zzz-profiler.git
+cd zzz-profiler
+
+# Создайте виртуальное окружение
+python -m venv .venv
+
+# Активируйте виртуальное окружение
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
+
+# Установите зависимости
+pip install -r requirements.txt
+```
+
+## 💻 Использование
+
+### Запуск приложения
+
+```bash
+python -m zzz_profiler
+```
+
+Или используйте готовые скрипты:
+
+**Windows:**
+```bash
+start.bat
+```
+
+**PowerShell:**
+```bash
+.\start.ps1
+```
+
+### Как использовать
+
+1. Введите UID игрока в поле ввода
+2. Нажмите кнопку поиска 🔍
+3. Выберите агента из списка слева
+4. Просматривайте детальную информацию справа
+
+## 🎨 Особенности интерфейса
+
+### Цветовая индикация рангов
+
+- **SS** (Фиолетовый) - Отличное качество
+- **S** (Розовый) - Очень хорошее качество
+- **A** (Голубой) - Хорошее качество
+- **B** (Зеленый) - Среднее качество
+- **C** (Желтый) - Ниже среднего
+- **D** (Серый) - Низкое качество
+
+### Визуализация навыков
+
+- 👊 Базовая атака
+- ✨ Особая атака
+- 💫 Ульта
+- 🌀 Уклонение
+- 🛡️ Парирование
+
+## 🛠️ Сборка .exe
+
+Для создания исполняемого файла:
+
+```bash
+# Установите PyInstaller
+pip install pyinstaller
+
+# Запустите сборку
+build.bat
+```
+
+Готовый .exe будет в папке `dist/`
+
+## 📦 Структура проекта
+
+```
+zzz-profiler/
+├── zzz_profiler/          # Основной пакет приложения
+│   ├── assets/            # Ресурсы (шрифты, иконки)
+│   ├── services/          # Сервисы (расчет рейтингов)
+│   ├── api.py            # API для получения данных
+│   ├── beautiful_app.py  # Главное GUI приложение
+│   ├── config.py         # Конфигурация и метаданные
+│   └── __main__.py       # Точка входа
+├── requirements.txt       # Зависимости Python
+├── README.md             # Документация
+└── LICENSE               # Лицензия
+```
+
+## 🔧 Технологии
+
+- **CustomTkinter** - современный GUI фреймворк
+- **Flask** - backend API сервер
+- **enka.py** - библиотека для работы с Enka Network API
+- **Pillow** - обработка изображений
+- **Requests** - HTTP запросы
+
+## 📝 Конфигурация
+
+Настройки производительности находятся в `zzz_profiler/performance_config.py`:
+
+- `resize_debounce_delay` - задержка при изменении размера окна
+- `image_load_timeout` - таймаут загрузки изображений
+- `max_image_cache_size` - размер кэша изображений
+
+## 🤝 Вклад в проект
+
+Приветствуются любые предложения и улучшения! Создавайте Issues и Pull Requests.
+
+## 📄 Лицензия
+
+MIT License - см. файл [LICENSE](LICENSE)
+
+## 🙏 Благодарности
+
+- [Enka Network](https://enka.network/) за предоставление API
+- Сообщество Zenless Zone Zero за поддержку
+
+## ⚠️ Дисклеймер
+
+Это неофициальное приложение, не связанное с HoYoverse. Используйте на свой риск.
 
 ---
 
-### For Developers
-
-If you want to run the project from source:
-1. Install Python 3.10+.
-2. Clone the repository.
-3. Run `start.bat` to automatically configure the environment and launch.
-
----
-<br>
-
-### Русское Описание
-
-Десктопное приложение для просмотра и анализа профилей игроков в **Zenless Zone Zero**. Позволяет оценивать сборки агентов и качество их дисков на основе полностью настраиваемой системы весов.
-
-## ✨ Возможности
-
-*   **Оценка Дисков:** Автоматический расчет рейтинга и ранга (SS, S, A...) для каждого диска.
-*   **Детальная Информация:** Просмотр всех статов, W-Engine, уровней навыков, Ментальной Картины и Уровня Задатков.
-*   **Современный Интерфейс:** Красивый дизайн с  акцентами.
-*   **Автономность:** Не требует установки Python или каких-либо библиотек. Просто скачайте и запустите!
-
-## 🚀 Как запустить (для Пользователей)
-
-1.  **Перейдите на страницу "Релизы" (Releases)** справа на этой странице (или нажмите [сюда](https://github.com/AnnyWall/ZenlessZoneZero-Disk-Analyzer/releases)).
-2.  В секции "Assets" последнего релиза скачайте файл `ZZZ_Profiler_v1.0.zip`.
-3.  Распакуйте архив в любую удобную папку.
-4.  Дважды кликните по файлу `ZZZ_Profiler.exe`, чтобы запустить приложение.
-
----
-
-### Для Разработчиков
-
-Если вы хотите запустить проект из исходного кода:
-1.  Установите Python 3.10+.
-2.  Склонируйте репозиторий.
-3.  Запустите `start.bat` для автоматической настройки окружения и запуска.
-
-## 📜 Лицензия
-
-Этот проект распространяется под лицензией **GNU General Public License v3.0**. Подробности смотрите в файле `LICENSE`.
+Сделано с ❤️ для сообщества ZZZ
