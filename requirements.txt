@@ -4,3 +4,4 @@ requests
 customtkinter
 pywinstyles
 Pillow
+PyQt5
