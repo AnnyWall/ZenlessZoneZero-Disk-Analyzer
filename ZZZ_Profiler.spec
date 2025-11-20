@@ -7,11 +7,14 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('zzz_profiler/assets', 'assets')],
-    hiddenimports=['enka', 'flask', 'PIL', 'customtkinter'],
+    hiddenimports=[
+        'enka', 'flask', 'PIL', 'PyQt5', 'PyQt5.QtCore', 
+        'PyQt5.QtGui', 'PyQt5.QtWidgets', 'requests'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['customtkinter', 'tkinter'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
