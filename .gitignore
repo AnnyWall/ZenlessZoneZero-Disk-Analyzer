@@ -45,11 +45,11 @@ desktop.ini
 # Cache
 .enka_py/
 *.cache
+.image_cache/
 
-# Build
-*.spec
-build.bat
-ZZZ_Profiler.spec
+# Build artifacts (keep build.bat and .spec)
+# build.bat - keep for building
+# ZZZ_Profiler.spec - keep for building
 
 # Local config
 config.local.py

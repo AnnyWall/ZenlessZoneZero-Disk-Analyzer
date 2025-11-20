@@ -1,0 +1,1105 @@
+"""
+PyQt5 версия ZZZ Profiler - оптимизированная и быстрая
+"""
+
+import sys
+import os
+import requests
+import threading
+import time
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QListWidget, QScrollArea,
+    QFrame, QGridLayout, QSizePolicy
+)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtGui import QFont, QPixmap, QPalette, QColor, QIcon
+from io import BytesIO
+
+# Добавляем путь для импортов
+if getattr(sys, 'frozen', False):
+    application_path = os.path.dirname(sys.executable)
+    sys.path.insert(0, os.path.abspath(os.path.join(application_path, '..')))
+else:
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+try:
+    from zzz_profiler.config import AGENT_METADATA, STAT_NORMALIZATION_VALUES, DISK_SET_NAMES
+    from zzz_profiler.run import run_server
+except ImportError:
+    AGENT_METADATA, STAT_NORMALIZATION_VALUES, DISK_SET_NAMES = {}, {}, {}
+    run_server = None
+
+# Неоновая цветовая палитра
+NEON_COLORS = {
+    "background": "#0A0E1A",
+    "panel_bg": "#1A1B1E",
+    "card_bg": "#1E2433",
+    "card_hover": "#252D3F",
+    "border_neon": "#00E5FF",
+    "text_main": "#EAEAEA",
+    "text_secondary": "#8B92A8",
+    "text_neon": "#00E5FF",
+    "accent_purple": "#B388FF",
+    "accent_pink": "#FF4081",
+    "accent_green": "#69F0AE",
+    "stat_highlight": "#FFB74D",
+}
+
+RANK_COLORS = {
+    "SSS": "#FF1744",  # Ярко-красный для супер крутых сборок
+    "SS": "#FFB74D",
+    "S": "#BA68C8",
+    "A": "#4FC3F7",
+    "B": "#81C784",
+    "C": "#FFF176",
+    "D": "#8B92A8"
+}
+
+# Глобальные стили
+GLOBAL_STYLE = f"""
+QMainWindow {{
+    background-color: {NEON_COLORS['background']};
+}}
+
+QWidget {{
+    background-color: transparent;
+    color: {NEON_COLORS['text_main']};
+    font-family: 'Segoe UI', Arial;
+    font-size: 14px;
+}}
+
+QLineEdit {{
+    background-color: {NEON_COLORS['card_bg']};
+    border: 2px solid {NEON_COLORS['border_neon']};
+    border-radius: 8px;
+    padding: 8px;
+    color: {NEON_COLORS['text_main']};
+    font-size: 14px;
+}}
+
+QLineEdit:focus {{
+    border-color: {NEON_COLORS['text_neon']};
+}}
+
+QPushButton {{
+    background-color: {NEON_COLORS['border_neon']};
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: {NEON_COLORS['background']};
+    font-weight: bold;
+    font-size: 14px;
+}}
+
+QPushButton:hover {{
+    background-color: {NEON_COLORS['text_neon']};
+}}
+
+QPushButton:pressed {{
+    background-color: #00B8D4;
+}}
+
+QListWidget {{
+    background-color: {NEON_COLORS['panel_bg']};
+    border: none;
+    border-radius: 8px;
+    padding: 5px;
+}}
+
+QListWidget::item {{
+    background-color: {NEON_COLORS['card_bg']};
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 2px;
+    color: {NEON_COLORS['text_main']};
+}}
+
+QListWidget::item:selected {{
+    background-color: {NEON_COLORS['card_hover']};
+    border: 1px solid {NEON_COLORS['border_neon']};
+}}
+
+QListWidget::item:hover {{
+    background-color: {NEON_COLORS['card_hover']};
+}}
+
+QScrollBar:vertical {{
+    background-color: {NEON_COLORS['panel_bg']};
+    width: 12px;
+    border-radius: 6px;
+}}
+
+QScrollBar::handle:vertical {{
+    background-color: {NEON_COLORS['border_neon']};
+    border-radius: 6px;
+    min-height: 20px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background-color: {NEON_COLORS['text_neon']};
+}}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+}}
+
+QLabel {{
+    background-color: transparent;
+}}
+"""
+
+
+class FetchThread(QThread):
+    """Поток для загрузки данных профиля"""
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    
+    def __init__(self, uid):
+        super().__init__()
+        self.uid = uid
+    
+    def run(self):
+        try:
+            response = requests.get(f"http://127.0.0.1:5000/api/profile/{self.uid}", timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            self.finished.emit(data)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class ImageLoader(QThread):
+    """Поток для загрузки изображений с кешированием"""
+    finished = pyqtSignal(QPixmap)
+    
+    # Директория для кеша
+    CACHE_DIR = os.path.join(os.path.dirname(__file__), '.image_cache')
+    
+    def __init__(self, url, size=(64, 64), circular=False):
+        super().__init__()
+        self.url = url
+        self.size = size
+        self.circular = circular
+        
+        # Создаем директорию кеша если её нет
+        if not os.path.exists(self.CACHE_DIR):
+            os.makedirs(self.CACHE_DIR)
+    
+    def get_cache_path(self):
+        """Получить путь к кешированному файлу"""
+        import hashlib
+        url_hash = hashlib.md5(self.url.encode()).hexdigest()
+        return os.path.join(self.CACHE_DIR, f"{url_hash}.png")
+    
+    def load_from_cache(self):
+        """Загрузить из кеша если есть"""
+        cache_path = self.get_cache_path()
+        if os.path.exists(cache_path):
+            pixmap = QPixmap(cache_path)
+            if not pixmap.isNull():
+                return pixmap
+        return None
+    
+    def save_to_cache(self, data):
+        """Сохранить в кеш"""
+        try:
+            cache_path = self.get_cache_path()
+            with open(cache_path, 'wb') as f:
+                f.write(data)
+        except Exception as e:
+            print(f"[ImageLoader] Ошибка сохранения в кеш: {e}")
+    
+    def create_placeholder(self):
+        """Создать placeholder изображение"""
+        from PyQt5.QtGui import QPainter, QBrush
+        pixmap = QPixmap(self.size[0], self.size[1])
+        pixmap.fill(QColor(NEON_COLORS['card_bg']))
+        
+        painter = QPainter(pixmap)
+        painter.setPen(QColor(NEON_COLORS['text_secondary']))
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, "?")
+        painter.end()
+        
+        return pixmap
+    
+    def run(self):
+        try:
+            # Сначала проверяем кеш
+            cached_pixmap = self.load_from_cache()
+            if cached_pixmap:
+                pixmap = cached_pixmap
+            else:
+                # Загружаем с повторными попытками
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        response = requests.get(self.url, timeout=10)
+                        response.raise_for_status()
+                        
+                        # Сохраняем в кеш
+                        self.save_to_cache(response.content)
+                        
+                        pixmap = QPixmap()
+                        success = pixmap.loadFromData(response.content)
+                        
+                        if success and not pixmap.isNull():
+                            break
+                        
+                        if attempt < max_retries - 1:
+                            time.sleep(0.5)
+                    except Exception as e:
+                        if attempt == max_retries - 1:
+                            print(f"[ImageLoader] Не удалось загрузить после {max_retries} попыток: {self.url}")
+                            pixmap = self.create_placeholder()
+                        else:
+                            time.sleep(0.5)
+                            continue
+            
+            if pixmap.isNull():
+                pixmap = self.create_placeholder()
+            
+            # Масштабируем
+            pixmap = pixmap.scaled(self.size[0], self.size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            
+            # Делаем круглым если нужно
+            if self.circular:
+                from PyQt5.QtGui import QPainter, QPainterPath
+                rounded = QPixmap(self.size[0], self.size[1])
+                rounded.fill(Qt.transparent)
+                
+                painter = QPainter(rounded)
+                painter.setRenderHint(QPainter.Antialiasing)
+                
+                path = QPainterPath()
+                path.addEllipse(0, 0, self.size[0], self.size[1])
+                painter.setClipPath(path)
+                
+                # Центрируем изображение
+                x = (self.size[0] - pixmap.width()) // 2
+                y = (self.size[1] - pixmap.height()) // 2
+                painter.drawPixmap(x, y, pixmap)
+                painter.end()
+                
+                pixmap = rounded
+            
+            self.finished.emit(pixmap)
+            
+        except Exception as e:
+            print(f"[ImageLoader] Критическая ошибка: {e}")
+            self.finished.emit(self.create_placeholder())
+
+
+class CardFrame(QFrame):
+    """Базовый класс для карточек с неоновым дизайном"""
+    def __init__(self, border_color=None, parent=None):
+        super().__init__(parent)
+        if border_color is None:
+            border_color = NEON_COLORS['border_neon']
+        
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {NEON_COLORS['card_bg']};
+                border: 2px solid {border_color};
+                border-radius: 10px;
+                padding: 10px;
+            }}
+        """)
+
+
+class ZZZProfilerQt(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("⚡ ZZZ Profiler")
+        self.setGeometry(100, 100, 1400, 900)
+        
+        self.current_agents_data = []
+        self.current_agent_index = None
+        self.image_cache = {}
+        self.image_loaders = []  # Храним ссылки на загрузчики изображений
+        
+        self.init_ui()
+        self.setStyleSheet(GLOBAL_STYLE)
+    
+    def init_ui(self):
+        """Инициализация интерфейса"""
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Левая панель
+        self.create_left_panel(main_layout)
+        
+        # Правая панель
+        self.create_right_panel(main_layout)
+    
+    def create_left_panel(self, parent_layout):
+        """Создание левой панели"""
+        left_panel = QWidget()
+        left_panel.setFixedWidth(250)
+        left_panel.setStyleSheet(f"background-color: {NEON_COLORS['panel_bg']};")
+        
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Заголовок
+        title = QLabel("⚡ ZZZ PROFILER")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"""
+            font-size: 20px;
+            font-weight: bold;
+            color: {NEON_COLORS['text_neon']};
+            padding: 15px;
+            background-color: {NEON_COLORS['card_bg']};
+            border-radius: 10px;
+        """)
+        left_layout.addWidget(title)
+        
+        # Поле ввода UID
+        input_layout = QHBoxLayout()
+        self.uid_input = QLineEdit()
+        self.uid_input.setPlaceholderText("Введите UID...")
+        self.uid_input.returnPressed.connect(self.fetch_profile)
+        input_layout.addWidget(self.uid_input)
+        
+        search_btn = QPushButton("🔍")
+        search_btn.setFixedWidth(45)
+        search_btn.clicked.connect(self.fetch_profile)
+        input_layout.addWidget(search_btn)
+        
+        left_layout.addLayout(input_layout)
+        
+        # Информация о игроке
+        self.player_label = QLabel("")
+        self.player_label.setStyleSheet(f"""
+            font-size: 16px;
+            font-weight: bold;
+            color: {NEON_COLORS['text_neon']};
+            padding: 5px;
+        """)
+        left_layout.addWidget(self.player_label)
+        
+        # Список агентов
+        agents_label = QLabel("👥 АГЕНТЫ")
+        agents_label.setStyleSheet(f"""
+            font-size: 16px;
+            font-weight: bold;
+            color: {NEON_COLORS['text_neon']};
+            padding: 5px;
+        """)
+        left_layout.addWidget(agents_label)
+        
+        self.agent_list = QListWidget()
+        self.agent_list.itemClicked.connect(self.on_agent_selected)
+        left_layout.addWidget(self.agent_list)
+        
+        parent_layout.addWidget(left_panel)
+    
+    def create_right_panel(self, parent_layout):
+        """Создание правой панели"""
+        self.right_panel = QWidget()
+        self.right_panel.setStyleSheet(f"background-color: {NEON_COLORS['background']};")
+        
+        self.right_layout = QVBoxLayout(self.right_panel)
+        self.right_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Приветственное сообщение
+        welcome = CardFrame(NEON_COLORS['border_neon'])
+        welcome_layout = QVBoxLayout(welcome)
+        
+        welcome_title = QLabel("⚡ ZZZ PROFILER ⚡")
+        welcome_title.setAlignment(Qt.AlignCenter)
+        welcome_title.setStyleSheet(f"""
+            font-size: 28px;
+            font-weight: bold;
+            color: {NEON_COLORS['text_neon']};
+        """)
+        welcome_layout.addWidget(welcome_title)
+        
+        welcome_text = QLabel("Введите UID и выберите агента\nдля просмотра детальной информации")
+        welcome_text.setAlignment(Qt.AlignCenter)
+        welcome_text.setStyleSheet(f"color: {NEON_COLORS['text_secondary']}; font-size: 14px;")
+        welcome_layout.addWidget(welcome_text)
+        
+        self.right_layout.addWidget(welcome, alignment=Qt.AlignCenter)
+        self.right_layout.addStretch()
+        
+        parent_layout.addWidget(self.right_panel)
+    
+    def fetch_profile(self):
+        """Загрузка профиля"""
+        uid = self.uid_input.text().strip()
+        if not uid:
+            return
+        
+        self.player_label.setText("Загрузка...")
+        self.agent_list.clear()
+        
+        self.fetch_thread = FetchThread(uid)
+        self.fetch_thread.finished.connect(self.on_profile_loaded)
+        self.fetch_thread.error.connect(self.on_profile_error)
+        self.fetch_thread.start()
+    
+    def on_profile_loaded(self, data):
+        """Обработка загруженного профиля"""
+        player_info = data.get('player', {})
+        self.player_label.setText(f"{player_info.get('nickname', 'N/A')} (Ур. {player_info.get('level', 'N/A')})")
+        
+        self.current_agents_data = data.get('agents', [])
+        
+        # Заполняем список агентов
+        self.agent_list.clear()
+        for agent in self.current_agents_data:
+            rank = agent.get('agent_rank', 'D')
+            rank_indicator = {'SSS': '🔥', 'SS': '⭐⭐', 'S': '⭐', 'A': '▲', 'B': '●', 'C': '○', 'D': '·'}
+            item_text = f"{rank_indicator.get(rank, '·')} {agent.get('name', 'N/A')}"
+            self.agent_list.addItem(item_text)
+        
+        # Показываем первого агента
+        if self.current_agents_data:
+            self.agent_list.setCurrentRow(0)
+            self.show_agent_details(0)
+    
+    def on_profile_error(self, error):
+        """Обработка ошибки загрузки"""
+        self.player_label.setText(f"Ошибка: {error}")
+    
+    def on_agent_selected(self, item):
+        """Обработка выбора агента"""
+        index = self.agent_list.row(item)
+        self.show_agent_details(index)
+    
+    def show_agent_details(self, index):
+        """Отображение деталей агента"""
+        if index >= len(self.current_agents_data):
+            return
+        
+        self.current_agent_index = index
+        agent = self.current_agents_data[index]
+        
+        # Очищаем правую панель
+        while self.right_layout.count():
+            child = self.right_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        # Создаем scroll area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(10)
+        
+        # Заголовок агента
+        self.create_agent_header(content_layout, agent)
+        
+        # Характеристики, W-Engine, Навыки
+        self.create_stats_section(content_layout, agent)
+        
+        # Диски
+        self.create_disks_section(content_layout, agent)
+        
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        self.right_layout.addWidget(scroll)
+    
+    def create_agent_header(self, layout, agent):
+        """Создание заголовка агента"""
+        header = CardFrame(NEON_COLORS['border_neon'])
+        header_layout = QHBoxLayout(header)
+        
+        # Иконка агента (круглая)
+        icon_label = QLabel()
+        icon_label.setFixedSize(64, 64)
+        icon_label.setStyleSheet("""
+            border: 2px solid #00E5FF;
+            border-radius: 32px;
+            background-color: transparent;
+        """)
+        header_layout.addWidget(icon_label)
+        
+        # Пробуем разные варианты структуры данных для иконки
+        icon_url = None
+        icon_data = agent.get("icon")
+        if isinstance(icon_data, dict):
+            icon_url = icon_data.get("round") or icon_data.get("url")
+        elif isinstance(icon_data, str):
+            icon_url = icon_data
+        
+        if icon_url:
+            loader = ImageLoader(icon_url, (64, 64), circular=True)
+            loader.finished.connect(icon_label.setPixmap)
+            self.image_loaders.append(loader)
+            loader.start()
+        
+        # Информация
+        info_layout = QVBoxLayout()
+        
+        # Имя и ранг
+        name_layout = QHBoxLayout()
+        name_label = QLabel(agent.get('name', 'N/A'))
+        name_label.setStyleSheet(f"""
+            font-size: 24px;
+            font-weight: bold;
+            color: {NEON_COLORS['text_neon']};
+        """)
+        name_layout.addWidget(name_label)
+        
+        rank = agent.get('agent_rank', 'D')
+        rank_label = QLabel(f" {rank} ")
+        rank_label.setStyleSheet(f"""
+            background-color: {RANK_COLORS.get(rank)};
+            color: {NEON_COLORS['background']};
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 6px;
+        """)
+        name_layout.addWidget(rank_label)
+        name_layout.addStretch()
+        
+        info_layout.addLayout(name_layout)
+        
+        # Метаданные
+        meta = AGENT_METADATA.get(agent.get('name'), {})
+        specialty_icons = {
+            'Attack': '⚔️', 'Anomaly': '⚡', 'Stun': '💥',
+            'Defense': '🛡️', 'Support': '💚', 'Rupture': '🔨'
+        }
+        specialty = meta.get('specialty', 'N/A')
+        specialty_icon = specialty_icons.get(specialty, '❓')
+        
+        rarity = agent.get('rarity', 'S')
+        rarity_display = f"[{rarity}]" if isinstance(rarity, str) else '⭐' * int(rarity)
+        
+        meta_label = QLabel(f"Ур. {agent.get('level')} | {specialty_icon} {specialty} | {rarity_display}")
+        meta_label.setStyleSheet(f"color: {NEON_COLORS['text_secondary']};")
+        info_layout.addWidget(meta_label)
+        
+        # Общий счет
+        score_label = QLabel(f"⭐ Общий счет: {agent.get('total_score', 'N/A')}")
+        score_label.setStyleSheet(f"""
+            font-size: 16px;
+            font-weight: bold;
+            color: {RANK_COLORS.get(rank)};
+        """)
+        info_layout.addWidget(score_label)
+        
+        header_layout.addLayout(info_layout)
+        header_layout.addStretch()
+        
+        layout.addWidget(header)
+    
+    def create_stats_section(self, layout, agent):
+        """Создание секции характеристик, W-Engine и навыков"""
+        # Контейнер для трех колонок
+        stats_widget = QWidget()
+        stats_layout = QHBoxLayout(stats_widget)
+        stats_layout.setSpacing(10)
+        
+        # Колонка 1: Характеристики
+        stats_card = self.create_stats_card(agent)
+        stats_layout.addWidget(stats_card, 3)
+        
+        # Колонка 2: W-Engine
+        engine_card = self.create_engine_card(agent)
+        stats_layout.addWidget(engine_card, 2)
+        
+        # Колонка 3: Навыки и прогресс
+        skills_card = self.create_skills_card(agent)
+        stats_layout.addWidget(skills_card, 2)
+        
+        layout.addWidget(stats_widget)
+    
+    def create_stats_card(self, agent):
+        """Создание карточки характеристик (упрощенная)"""
+        card = CardFrame(NEON_COLORS['border_neon'])
+        card_layout = QVBoxLayout(card)
+        
+        # Заголовок
+        title = QLabel("⚡ ХАРАКТЕРИСТИКИ")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"""
+            font-size: 16px;
+            font-weight: bold;
+            color: {NEON_COLORS['text_neon']};
+            padding: 5px 0px 15px 0px;
+        """)
+        card_layout.addWidget(title)
+        
+        # Сетка статов (простой текст без рамок)
+        stats_grid = QGridLayout()
+        stats_grid.setSpacing(12)
+        stats_grid.setContentsMargins(10, 0, 10, 0)
+        
+        stats_to_show = [
+            "HP", "ATK", "DEF", 
+            "CRIT Rate", "CRIT DMG", "Energy Regen",
+            "Anomaly Mastery", "Sheer Force", "Impact"
+        ]
+        
+        row = 0
+        for stat_name in stats_to_show:
+            stat_obj = next((s for s in agent.get('stats', {}).values() if s['name'] == stat_name), None)
+            if stat_obj:
+                # Название стата
+                name_label = QLabel(stat_name)
+                name_label.setStyleSheet(f"""
+                    color: {NEON_COLORS['text_secondary']}; 
+                    font-size: 13px; 
+                    background: transparent;
+                    border: none;
+                    padding: 4px 0px;
+                """)
+                stats_grid.addWidget(name_label, row, 0)
+                
+                # Значение стата
+                value_label = QLabel(stat_obj['formatted_value'])
+                value_label.setAlignment(Qt.AlignRight)
+                value_label.setStyleSheet(f"""
+                    color: {NEON_COLORS['text_main']}; 
+                    font-weight: bold; 
+                    font-size: 14px; 
+                    background: transparent;
+                    border: none;
+                    padding: 4px 0px;
+                """)
+                stats_grid.addWidget(value_label, row, 1)
+                
+                row += 1
+        
+        card_layout.addLayout(stats_grid)
+        card_layout.addStretch()
+        
+        return card
+    
+    def create_engine_card(self, agent):
+        """Создание карточки W-Engine"""
+        card = CardFrame(NEON_COLORS['accent_purple'])
+        card_layout = QVBoxLayout(card)
+        
+        # Заголовок
+        title = QLabel("⚙️ W-ENGINE")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"""
+            font-size: 16px;
+            font-weight: bold;
+            color: {NEON_COLORS['accent_purple']};
+            padding: 5px;
+        """)
+        card_layout.addWidget(title)
+        
+        w_engine = agent.get('w_engine')
+        if w_engine:
+            # Иконка
+            icon_label = QLabel()
+            icon_label.setFixedSize(80, 80)
+            icon_label.setAlignment(Qt.AlignCenter)
+            icon_label.setStyleSheet("border: none;")
+            card_layout.addWidget(icon_label, alignment=Qt.AlignCenter)
+            
+            # Пробуем разные варианты структуры данных для иконки
+            icon_url = None
+            icon_data = w_engine.get('icon')
+            if isinstance(icon_data, dict):
+                icon_url = icon_data.get("url") or icon_data.get("round")
+            elif isinstance(icon_data, str):
+                icon_url = icon_data
+            
+            if icon_url:
+                loader = ImageLoader(icon_url, (80, 80))
+                loader.finished.connect(icon_label.setPixmap)
+                self.image_loaders.append(loader)
+                loader.start()
+            
+            # Название
+            name_label = QLabel(w_engine.get('name', 'N/A'))
+            name_label.setAlignment(Qt.AlignCenter)
+            name_label.setWordWrap(True)
+            name_label.setStyleSheet(f"""
+                font-weight: bold;
+                color: {NEON_COLORS['accent_purple']};
+                font-size: 14px;
+            """)
+            card_layout.addWidget(name_label)
+            
+            # Уровень
+            level_label = QLabel(f"Ур. {w_engine.get('level', 0)}")
+            level_label.setAlignment(Qt.AlignCenter)
+            level_label.setStyleSheet(f"color: {NEON_COLORS['text_secondary']}; font-size: 12px;")
+            card_layout.addWidget(level_label)
+            
+            # Статы
+            main_stat = w_engine.get('main_stat', {})
+            if main_stat:
+                stat_label = QLabel(f"▸ {main_stat.get('name')}: {main_stat.get('formatted_value')}")
+                stat_label.setStyleSheet(f"color: {NEON_COLORS['text_main']}; font-size: 12px;")
+                stat_label.setWordWrap(True)
+                card_layout.addWidget(stat_label)
+            
+            sub_stat = w_engine.get('sub_stat', {})
+            if sub_stat:
+                stat_label = QLabel(f"▸ {sub_stat.get('name')}: {sub_stat.get('formatted_value')}")
+                stat_label.setStyleSheet(f"color: {NEON_COLORS['text_main']}; font-size: 12px;")
+                stat_label.setWordWrap(True)
+                card_layout.addWidget(stat_label)
+        
+        card_layout.addStretch()
+        return card
+    
+    def create_skills_card(self, agent):
+        """Создание карточки навыков и прогресса"""
+        card = CardFrame(NEON_COLORS['accent_pink'])
+        card_layout = QVBoxLayout(card)
+        
+        # Заголовок
+        title = QLabel("✨ ПРОГРЕСС АГЕНТА")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"""
+            font-size: 16px;
+            font-weight: bold;
+            color: {NEON_COLORS['accent_pink']};
+            padding: 5px;
+        """)
+        card_layout.addWidget(title)
+        
+        # Mindscape
+        mindscape_label = QLabel("🌟 Mindscape (Созвездия)")
+        mindscape_label.setStyleSheet(f"color: {NEON_COLORS['accent_purple']}; font-weight: bold; font-size: 13px;")
+        card_layout.addWidget(mindscape_label)
+        
+        mindscape_widget = self.create_mindscape_widget(agent.get('mindscape', 0))
+        card_layout.addWidget(mindscape_widget)
+        
+        # Core Skills
+        core_label = QLabel("💎 Core Skill (Пассивки)")
+        core_label.setStyleSheet(f"color: {NEON_COLORS['border_neon']}; font-weight: bold; font-size: 13px; margin-top: 10px;")
+        card_layout.addWidget(core_label)
+        
+        core_widget = self.create_core_skills_widget(agent.get('core_skill_level_num', 0))
+        card_layout.addWidget(core_widget)
+        
+        # Боевые навыки
+        skills_label = QLabel("⚔️ Боевые навыки")
+        skills_label.setStyleSheet(f"color: {NEON_COLORS['text_main']}; font-weight: bold; font-size: 13px; margin-top: 10px;")
+        card_layout.addWidget(skills_label)
+        
+        skills_widget = self.create_battle_skills_widget(agent.get('skills', []))
+        card_layout.addWidget(skills_widget)
+        
+        card_layout.addStretch()
+        return card
+    
+    def create_mindscape_widget(self, level):
+        """Создание виджета Mindscape"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setSpacing(5)
+        layout.setContentsMargins(0, 5, 0, 5)
+        
+        for i in range(6):
+            is_unlocked = i < level
+            
+            circle = QLabel(str(i + 1))
+            circle.setFixedSize(30, 30)
+            circle.setAlignment(Qt.AlignCenter)
+            
+            if is_unlocked:
+                circle.setStyleSheet(f"""
+                    background-color: {NEON_COLORS['accent_purple']};
+                    color: {NEON_COLORS['background']};
+                    border: 2px solid {NEON_COLORS['accent_purple']};
+                    border-radius: 15px;
+                    font-weight: bold;
+                    font-size: 12px;
+                """)
+            else:
+                circle.setStyleSheet(f"""
+                    background-color: {NEON_COLORS['card_bg']};
+                    color: {NEON_COLORS['text_secondary']};
+                    border: 2px solid {NEON_COLORS['text_secondary']};
+                    border-radius: 15px;
+                    font-size: 12px;
+                """)
+            
+            layout.addWidget(circle)
+        
+        return widget
+    
+    def create_core_skills_widget(self, level):
+        """Создание виджета Core Skills"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setSpacing(5)
+        layout.setContentsMargins(0, 5, 0, 5)
+        
+        letters = ['A', 'B', 'C', 'D', 'E', 'F']
+        for i, letter in enumerate(letters):
+            is_unlocked = i < level
+            
+            circle = QLabel(letter)
+            circle.setFixedSize(35, 35)
+            circle.setAlignment(Qt.AlignCenter)
+            
+            if is_unlocked:
+                circle.setStyleSheet(f"""
+                    background-color: {NEON_COLORS['border_neon']};
+                    color: {NEON_COLORS['background']};
+                    border: 2px solid {NEON_COLORS['border_neon']};
+                    border-radius: 17px;
+                    font-weight: bold;
+                    font-size: 14px;
+                """)
+            else:
+                circle.setStyleSheet(f"""
+                    background-color: {NEON_COLORS['card_bg']};
+                    color: {NEON_COLORS['text_secondary']};
+                    border: 2px solid {NEON_COLORS['text_secondary']};
+                    border-radius: 17px;
+                    font-size: 14px;
+                """)
+            
+            layout.addWidget(circle)
+        
+        return widget
+    
+    def create_battle_skills_widget(self, skills):
+        """Создание виджета боевых навыков"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setSpacing(3)
+        layout.setContentsMargins(0, 5, 0, 5)
+        
+        skill_icons = {
+            0: "👊",  # ATK
+            1: "✨",  # SPECIAL
+            3: "💫",  # ULT
+            2: "🌀",  # DODGE
+            6: "🛡️"   # PARRY
+        }
+        
+        skill_colors = {
+            0: "#E0E0E0",
+            1: "#4FC3F7",
+            3: "#FFB74D",
+            2: "#81C784",
+            6: "#81C784"
+        }
+        
+        skills_dict = {skill['type']: skill for skill in skills}
+        # Порядок: удар, уклонение, парирование, способность, ульта
+        skills_order = [0, 2, 6, 1, 3]
+        
+        for skill_type in skills_order:
+            if skill := skills_dict.get(skill_type):
+                skill_widget = QWidget()
+                skill_layout = QVBoxLayout(skill_widget)
+                skill_layout.setSpacing(2)
+                skill_layout.setContentsMargins(2, 2, 2, 2)
+                
+                # Иконка
+                icon_label = QLabel(skill_icons.get(skill_type, "❓"))
+                icon_label.setAlignment(Qt.AlignCenter)
+                icon_label.setStyleSheet("font-size: 20px;")
+                skill_layout.addWidget(icon_label)
+                
+                # Уровень
+                level_label = QLabel(f"Ур.{skill['level']}")
+                level_label.setAlignment(Qt.AlignCenter)
+                level_label.setStyleSheet(f"""
+                    background-color: {skill_colors.get(skill_type, '#E0E0E0')};
+                    color: {NEON_COLORS['background']};
+                    border-radius: 6px;
+                    padding: 2px 4px;
+                    font-weight: bold;
+                    font-size: 10px;
+                """)
+                skill_layout.addWidget(level_label)
+                
+                skill_widget.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {NEON_COLORS['card_bg']};
+                        border: 2px solid {skill_colors.get(skill_type, '#E0E0E0')};
+                        border-radius: 8px;
+                    }}
+                """)
+                skill_widget.setFixedWidth(45)
+                
+                layout.addWidget(skill_widget)
+        
+        return widget
+    
+    def create_disks_section(self, layout, agent):
+        """Создание секции дисков"""
+        # Заголовок (просто текст, без рамки)
+        disks_title = QLabel("💿 ДИСКИ")
+        disks_title.setAlignment(Qt.AlignCenter)
+        disks_title.setStyleSheet(f"""
+            font-size: 20px;
+            font-weight: bold;
+            color: {NEON_COLORS['accent_green']};
+            padding: 10px;
+        """)
+        layout.addWidget(disks_title)
+        
+        # Сетка дисков
+        disks_widget = QWidget()
+        disks_grid = QGridLayout(disks_widget)
+        disks_grid.setSpacing(10)
+        
+        discs = [d for d in agent.get('discs', []) if d]
+        for i, disc in enumerate(discs):
+            row, col = divmod(i, 3)
+            disk_card = self.create_disk_card(disc, i)
+            disks_grid.addWidget(disk_card, row, col)
+        
+        layout.addWidget(disks_widget)
+    
+    def create_disk_card(self, disc, index):
+        """Создание карточки диска"""
+        rank = disc.get('rank', 'D')
+        border_colors = {
+            'SSS': "#FF1744",  # Ярко-красный для супер крутых сборок
+            'SS': NEON_COLORS["accent_purple"],
+            'S': NEON_COLORS["accent_pink"],
+            'A': NEON_COLORS["border_neon"],
+            'B': NEON_COLORS["accent_green"],
+            'C': NEON_COLORS["text_secondary"],
+            'D': NEON_COLORS["text_secondary"]
+        }
+        
+        card = CardFrame(border_colors.get(rank))
+        card_layout = QVBoxLayout(card)
+        
+        # Заголовок
+        set_id = disc.get('set_id')
+        set_name = DISK_SET_NAMES.get(set_id, disc.get('set_name', f"Set ID {set_id}"))
+        
+        title = QLabel(f"💎 Диск {index + 1}: {set_name}")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"font-weight: bold; color: {NEON_COLORS['text_main']}; font-size: 13px;")
+        title.setWordWrap(True)
+        card_layout.addWidget(title)
+        
+        # Ранг и уровень по центру
+        rank_label = QLabel(f"[{rank}] +{disc.get('level')}")
+        rank_label.setAlignment(Qt.AlignCenter)
+        rank_label.setStyleSheet(f"""
+            color: {RANK_COLORS.get(rank)}; 
+            font-weight: bold;
+            font-size: 14px;
+        """)
+        card_layout.addWidget(rank_label)
+        
+        # Оценка диска по центру
+        rating_label = QLabel(f"⭐ {disc.get('rating')}")
+        rating_label.setAlignment(Qt.AlignCenter)
+        rating_label.setStyleSheet(f"""
+            color: {RANK_COLORS.get(rank)}; 
+            font-weight: bold;
+            font-size: 16px;
+            padding: 5px 0px;
+        """)
+        card_layout.addWidget(rating_label)
+        
+        # Основной стат по центру
+        main_stat = disc.get('main_stat', {})
+        main_label = QLabel(f"{main_stat.get('name')}\n{main_stat.get('formatted_value')}")
+        main_label.setAlignment(Qt.AlignCenter)
+        main_label.setStyleSheet(f"""
+            color: {NEON_COLORS['text_main']}; 
+            font-weight: bold; 
+            font-size: 13px;
+            padding: 8px 0px;
+        """)
+        card_layout.addWidget(main_label)
+        
+        # Подстаты в общей рамке
+        substats_frame = QFrame()
+        substats_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {NEON_COLORS['card_hover']};
+                border: 1px solid {NEON_COLORS['text_secondary']};
+                border-radius: 6px;
+                padding: 5px;
+            }}
+        """)
+        substats_layout = QVBoxLayout(substats_frame)
+        substats_layout.setContentsMargins(5, 5, 5, 5)
+        substats_layout.setSpacing(2)
+        
+        weights = disc.get('calculation_weights', {})
+        for sub_stat in disc.get('sub_stats', []):
+            stat_name = sub_stat.get('name', 'N/A')
+            formatted_value = sub_stat.get('formatted_value', '0')
+            raw_value = sub_stat.get('value', 0)
+            
+            normalization_value = STAT_NORMALIZATION_VALUES.get(stat_name, 1.0)
+            usefulness_score = 0.0
+            
+            if normalization_value > 0:
+                is_percent = '%' in sub_stat.get('format', '')
+                actual_value = raw_value / 100.0 if is_percent else raw_value
+                num_rolls = actual_value / normalization_value
+                weight = weights.get(stat_name, 0)
+                usefulness_score = num_rolls * weight
+            
+            # Желтый для полезных статов, серый для бесполезных
+            color = NEON_COLORS["stat_highlight"] if usefulness_score > 0 else NEON_COLORS["text_secondary"]
+            
+            sub_label = QLabel(f"• {stat_name}: {formatted_value}  [{usefulness_score:+.1f}]")
+            sub_label.setStyleSheet(f"color: {color}; font-size: 12px; background: transparent; border: none;")
+            substats_layout.addWidget(sub_label)
+        
+        card_layout.addWidget(substats_frame)
+        
+        return card
+
+
+def start_backend():
+    """Запуск backend API сервера в фоновом потоке"""
+    if run_server:
+        print(">>> Запуск фонового API-сервера...")
+        run_server()
+
+
+def wait_for_server(max_attempts=10, delay=0.5):
+    """Ожидание готовности сервера"""
+    for attempt in range(max_attempts):
+        try:
+            response = requests.get("http://127.0.0.1:5000", timeout=1)
+            print(f">>> Сервер готов (попытка {attempt + 1}).")
+            return True
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt < max_attempts - 1:
+                time.sleep(delay)
+    return False
+
+
+def main():
+    # Запускаем backend сервер в фоновом потоке
+    backend_thread = threading.Thread(target=start_backend, daemon=True)
+    backend_thread.start()
+    
+    print(">>> Ожидание готовности сервера...")
+    if not wait_for_server():
+        print("!!! ПРЕДУПРЕЖДЕНИЕ: Сервер не отвечает, но GUI будет запущен.")
+    
+    print(">>> Запуск GUI приложения...")
+    
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    
+    window = ZZZProfilerQt()
+    window.show()
+    
+    sys.exit(app.exec_())
+
+
+if __name__ == '__main__':
+    main()
