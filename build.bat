@@ -1,31 +1,35 @@
 @echo off
 chcp 65001 >nul
 REM =================================================================
-REM ==        ZZZ Profiler Build Script v5.0                     ==
+REM ==        ZZZ Profiler Build Script v6.0 (PyQt5)             ==
 REM =================================================================
 title Building ZZZ Profiler...
 
-echo ⚡ ZZZ Profiler - Build Script
-echo ================================
+echo ⚡ ZZZ Profiler - Build Script (PyQt5)
+echo ========================================
 echo.
 
-echo [1/4] Очистка старых сборок...
+echo [1/5] Очистка старых сборок...
 if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
-if exist ZZZ_Profiler.spec del ZZZ_Profiler.spec
 echo ✓ Готово
 echo.
 
-echo [2/4] Проверка PyInstaller...
+echo [2/5] Проверка зависимостей...
 pip show pyinstaller >nul 2>nul
 if %errorlevel% neq 0 (
     echo Installing PyInstaller...
     pip install pyinstaller
 )
-echo ✓ PyInstaller готов
+pip show PyQt5 >nul 2>nul
+if %errorlevel% neq 0 (
+    echo Installing PyQt5...
+    pip install PyQt5
+)
+echo ✓ Зависимости готовы
 echo.
 
-echo [3/4] Создание .spec файла...
+echo [3/5] Обновление .spec файла...
 (
 echo # -*- mode: python ; coding: utf-8 -*-
 echo.
@@ -36,11 +40,14 @@ echo     ['zzz_profiler/__main__.py'],
 echo     pathex=[],
 echo     binaries=[],
 echo     datas=[^('zzz_profiler/assets', 'assets'^)],
-echo     hiddenimports=['enka', 'flask', 'PIL', 'customtkinter'],
+echo     hiddenimports=[
+echo         'enka', 'flask', 'PIL', 'PyQt5', 'PyQt5.QtCore', 
+echo         'PyQt5.QtGui', 'PyQt5.QtWidgets', 'requests'
+echo     ],
 echo     hookspath=[],
 echo     hooksconfig={},
 echo     runtime_hooks=[],
-echo     excludes=[],
+echo     excludes=['customtkinter', 'tkinter'],
 echo     win_no_prefer_redirects=False,
 echo     win_private_assemblies=False,
 echo     cipher=block_cipher,
@@ -71,13 +78,13 @@ echo     codesign_identity=None,
 echo     entitlements_file=None,
 echo ^)
 ) > ZZZ_Profiler.spec
-echo ✓ Spec файл создан
+echo ✓ Spec файл обновлен
 echo.
 
-echo [4/4] Сборка приложения...
+echo [4/5] Сборка приложения...
 echo Это может занять несколько минут...
 echo.
-pyinstaller --clean ZZZ_Profiler.spec
+pyinstaller --clean --noconfirm ZZZ_Profiler.spec
 
 if %errorlevel% neq 0 (
     echo.
@@ -88,13 +95,19 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo ================================
+echo [5/5] Очистка временных файлов...
+if exist build rmdir /s /q build
+echo ✓ Готово
+echo.
+
+echo ========================================
 echo ✓ Сборка успешно завершена!
 echo.
 echo 📦 Файл: dist\ZZZ_Profiler.exe
 echo 📁 Размер: 
 dir dist\ZZZ_Profiler.exe | find "ZZZ_Profiler.exe"
 echo.
-echo Готово к использованию! 🎉
-echo ================================
+echo 🎨 Версия: PyQt5 (оптимизированная)
+echo 🚀 Готово к использованию!
+echo ========================================
 pause

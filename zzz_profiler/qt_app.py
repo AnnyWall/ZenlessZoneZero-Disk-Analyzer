@@ -177,6 +177,39 @@ class ImageLoader(QThread):
     # Директория для кеша
     CACHE_DIR = os.path.join(os.path.dirname(__file__), '.image_cache')
     
+    # Общая сессия для всех загрузчиков с connection pooling
+    _session = None
+    _session_lock = threading.Lock()
+    
+    @classmethod
+    def get_session(cls):
+        """Получить общую сессию с настройками"""
+        if cls._session is None:
+            with cls._session_lock:
+                if cls._session is None:
+                    from requests.adapters import HTTPAdapter
+                    from urllib3.util.retry import Retry
+                    
+                    cls._session = requests.Session()
+                    
+                    # Настройка retry стратегии
+                    retry_strategy = Retry(
+                        total=3,
+                        backoff_factor=1,
+                        status_forcelist=[429, 500, 502, 503, 504],
+                    )
+                    
+                    adapter = HTTPAdapter(
+                        max_retries=retry_strategy,
+                        pool_connections=10,
+                        pool_maxsize=20
+                    )
+                    
+                    cls._session.mount("http://", adapter)
+                    cls._session.mount("https://", adapter)
+        
+        return cls._session
+    
     def __init__(self, url, size=(64, 64), circular=False):
         super().__init__()
         self.url = url
@@ -231,58 +264,43 @@ class ImageLoader(QThread):
             if cached_pixmap:
                 pixmap = cached_pixmap
             else:
-                # Загружаем с повторными попытками
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        response = requests.get(self.url, timeout=10)
-                        response.raise_for_status()
+                # Загружаем с сервера используя общую сессию
+                session = self.get_session()
+                pixmap = None
+                
+                try:
+                    # Используем stream=True для постепенной загрузки
+                    # Очень большой таймаут для медленного сервера enka.network
+                    response = session.get(self.url, timeout=(10, 60), stream=True)
+                    response.raise_for_status()
+                    
+                    # Читаем контент постепенно
+                    content = b''
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            content += chunk
+                    
+                    # Сохраняем в кеш
+                    self.save_to_cache(content)
+                    
+                    pixmap = QPixmap()
+                    success = pixmap.loadFromData(content)
+                    
+                    if success and not pixmap.isNull():
+                        print(f"[ImageLoader] ✓ Загружено: {self.url.split('/')[-1]}")
+                    else:
+                        pixmap = self.create_placeholder()
                         
-                        # Сохраняем в кеш
-                        self.save_to_cache(response.content)
-                        
-                        pixmap = QPixmap()
-                        success = pixmap.loadFromData(response.content)
-                        
-                        if success and not pixmap.isNull():
-                            break
-                        
-                        if attempt < max_retries - 1:
-                            time.sleep(0.5)
-                    except Exception as e:
-                        if attempt == max_retries - 1:
-                            print(f"[ImageLoader] Не удалось загрузить после {max_retries} попыток: {self.url}")
-                            pixmap = self.create_placeholder()
-                        else:
-                            time.sleep(0.5)
-                            continue
+                except Exception as e:
+                    print(f"[ImageLoader] ✗ Ошибка: {self.url.split('/')[-1]} - {str(e)[:80]}")
+                    pixmap = self.create_placeholder()
             
-            if pixmap.isNull():
+            if pixmap is None or pixmap.isNull():
                 pixmap = self.create_placeholder()
             
             # Масштабируем
-            pixmap = pixmap.scaled(self.size[0], self.size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            
-            # Делаем круглым если нужно
-            if self.circular:
-                from PyQt5.QtGui import QPainter, QPainterPath
-                rounded = QPixmap(self.size[0], self.size[1])
-                rounded.fill(Qt.transparent)
-                
-                painter = QPainter(rounded)
-                painter.setRenderHint(QPainter.Antialiasing)
-                
-                path = QPainterPath()
-                path.addEllipse(0, 0, self.size[0], self.size[1])
-                painter.setClipPath(path)
-                
-                # Центрируем изображение
-                x = (self.size[0] - pixmap.width()) // 2
-                y = (self.size[1] - pixmap.height()) // 2
-                painter.drawPixmap(x, y, pixmap)
-                painter.end()
-                
-                pixmap = rounded
+            if not pixmap.isNull():
+                pixmap = pixmap.scaled(self.size[0], self.size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
             
             self.finished.emit(pixmap)
             
@@ -306,6 +324,81 @@ class CardFrame(QFrame):
                 padding: 10px;
             }}
         """)
+
+
+class CoreSkillButton(QWidget):
+    """Интерактивная кнопка Core Skill"""
+    def __init__(self, letter, is_unlocked, parent=None):
+        super().__init__(parent)
+        self.letter = letter
+        self.is_unlocked = is_unlocked
+        self.is_hovered = False
+        
+        self.setFixedSize(38, 38)
+        self.setMouseTracking(True)
+    
+    def enterEvent(self, event):
+        """При наведении мыши"""
+        self.is_hovered = True
+        self.update()
+    
+    def leaveEvent(self, event):
+        """При уходе мыши"""
+        self.is_hovered = False
+        self.update()
+    
+    def paintEvent(self, event):
+        """Отрисовка с интерактивностью"""
+        from PyQt5.QtGui import QPainter, QPen, QBrush, QFont
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Размеры
+        rect = self.rect()
+        center_x = rect.width() / 2
+        center_y = rect.height() / 2
+        radius = min(rect.width(), rect.height()) / 2 - 2
+        
+        if self.is_unlocked:
+            # Разблокированные - неоновый цвет
+            if self.is_hovered:
+                # При наведении - белое свечение
+                pen = QPen(QColor("#FFFFFF"), 3)
+                painter.setPen(pen)
+                painter.setBrush(QBrush(QColor(NEON_COLORS['border_neon'])))
+            else:
+                pen = QPen(QColor(NEON_COLORS['border_neon']), 2)
+                painter.setPen(pen)
+                painter.setBrush(QBrush(QColor(NEON_COLORS['border_neon'])))
+            
+            painter.drawEllipse(int(center_x - radius), int(center_y - radius), 
+                              int(radius * 2), int(radius * 2))
+            
+            # Текст
+            painter.setPen(QColor(NEON_COLORS['background']))
+            font = QFont('Segoe UI', 14, QFont.Bold)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignCenter, self.letter)
+            
+        else:
+            # Неразблокированные - серые
+            pen = QPen(QColor(NEON_COLORS['text_secondary']), 2)
+            painter.setPen(pen)
+            
+            if self.is_hovered:
+                painter.setBrush(QBrush(QColor(NEON_COLORS['card_hover'])))
+            else:
+                painter.setBrush(QBrush(QColor(NEON_COLORS['card_bg'])))
+            
+            painter.drawEllipse(int(center_x - radius), int(center_y - radius), 
+                              int(radius * 2), int(radius * 2))
+            
+            # Текст
+            painter.setPen(QColor(NEON_COLORS['text_secondary']))
+            font = QFont('Segoe UI', 13)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignCenter, self.letter)
 
 
 class ZZZProfilerQt(QMainWindow):
@@ -514,29 +607,84 @@ class ZZZProfilerQt(QMainWindow):
         header = CardFrame(NEON_COLORS['border_neon'])
         header_layout = QHBoxLayout(header)
         
-        # Иконка агента (круглая)
-        icon_label = QLabel()
-        icon_label.setFixedSize(64, 64)
-        icon_label.setStyleSheet("""
-            border: 2px solid #00E5FF;
-            border-radius: 32px;
-            background-color: transparent;
+        # Иконка агента (круглая через CSS)
+        icon_container = QLabel()
+        icon_container.setFixedSize(64, 64)
+        icon_container.setAlignment(Qt.AlignCenter)
+        icon_container.setStyleSheet("""
+            QLabel {
+                border: 2px solid #00E5FF;
+                border-radius: 32px;
+                background-color: #1E2433;
+            }
         """)
-        header_layout.addWidget(icon_label)
+        header_layout.addWidget(icon_container)
         
         # Пробуем разные варианты структуры данных для иконки
         icon_url = None
         icon_data = agent.get("icon")
         if isinstance(icon_data, dict):
-            icon_url = icon_data.get("round") or icon_data.get("url")
+            icon_url = icon_data.get("round") or icon_data.get("image") or icon_data.get("url")
         elif isinstance(icon_data, str):
             icon_url = icon_data
         
         if icon_url:
-            loader = ImageLoader(icon_url, (64, 64), circular=True)
-            loader.finished.connect(icon_label.setPixmap)
-            self.image_loaders.append(loader)
-            loader.start()
+            # Сначала проверяем кеш синхронно (быстро)
+            import hashlib
+            cache_dir = os.path.join(os.path.dirname(__file__), '.image_cache')
+            url_hash = hashlib.md5(icon_url.encode()).hexdigest()
+            cache_path = os.path.join(cache_dir, f"{url_hash}.png")
+            
+            if os.path.exists(cache_path):
+                # Из кеша - мгновенно
+                pixmap = QPixmap(cache_path)
+                if not pixmap.isNull():
+                    pixmap = pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    from PyQt5.QtGui import QPainter, QPainterPath
+                    rounded = QPixmap(60, 60)
+                    rounded.fill(Qt.transparent)
+                    
+                    painter = QPainter(rounded)
+                    painter.setRenderHint(QPainter.Antialiasing)
+                    
+                    path = QPainterPath()
+                    path.addEllipse(0, 0, 60, 60)
+                    painter.setClipPath(path)
+                    
+                    x = (60 - pixmap.width()) // 2
+                    y = (60 - pixmap.height()) // 2
+                    painter.drawPixmap(x, y, pixmap)
+                    painter.end()
+                    
+                    icon_container.setPixmap(rounded)
+            else:
+                # Нет в кеше - загружаем асинхронно
+                loader = ImageLoader(icon_url, (60, 60), circular=False)
+                
+                def set_agent_icon(pixmap):
+                    if not pixmap.isNull():
+                        from PyQt5.QtGui import QPainter, QPainterPath
+                        rounded = QPixmap(60, 60)
+                        rounded.fill(Qt.transparent)
+                        
+                        painter = QPainter(rounded)
+                        painter.setRenderHint(QPainter.Antialiasing)
+                        
+                        path = QPainterPath()
+                        path.addEllipse(0, 0, 60, 60)
+                        painter.setClipPath(path)
+                        
+                        x = (60 - pixmap.width()) // 2
+                        y = (60 - pixmap.height()) // 2
+                        painter.drawPixmap(x, y, pixmap)
+                        painter.end()
+                        
+                        icon_container.setPixmap(rounded)
+                
+                loader.finished.connect(set_agent_icon)
+                self.image_loaders.append(loader)
+                loader.start()
         
         # Информация
         info_layout = QVBoxLayout()
@@ -696,11 +844,12 @@ class ZZZProfilerQt(QMainWindow):
         
         w_engine = agent.get('w_engine')
         if w_engine:
-            # Иконка
+            # Иконка - увеличиваем размер чтобы изображение не обрезалось
             icon_label = QLabel()
-            icon_label.setFixedSize(80, 80)
+            icon_label.setFixedSize(120, 120)
             icon_label.setAlignment(Qt.AlignCenter)
-            icon_label.setStyleSheet("border: none;")
+            icon_label.setScaledContents(False)
+            icon_label.setStyleSheet("border: none; background: transparent;")
             card_layout.addWidget(icon_label, alignment=Qt.AlignCenter)
             
             # Пробуем разные варианты структуры данных для иконки
@@ -712,10 +861,25 @@ class ZZZProfilerQt(QMainWindow):
                 icon_url = icon_data
             
             if icon_url:
-                loader = ImageLoader(icon_url, (80, 80))
-                loader.finished.connect(icon_label.setPixmap)
-                self.image_loaders.append(loader)
-                loader.start()
+                # Сначала проверяем кеш синхронно (быстро)
+                import hashlib
+                cache_dir = os.path.join(os.path.dirname(__file__), '.image_cache')
+                url_hash = hashlib.md5(icon_url.encode()).hexdigest()
+                cache_path = os.path.join(cache_dir, f"{url_hash}.png")
+                
+                if os.path.exists(cache_path):
+                    # Из кеша - мгновенно
+                    pixmap = QPixmap(cache_path)
+                    if not pixmap.isNull():
+                        # Масштабируем до 110x110 чтобы поместилось в контейнер 120x120
+                        pixmap = pixmap.scaled(110, 110, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        icon_label.setPixmap(pixmap)
+                else:
+                    # Нет в кеше - загружаем асинхронно
+                    loader = ImageLoader(icon_url, (110, 110), circular=False)
+                    loader.finished.connect(icon_label.setPixmap)
+                    self.image_loaders.append(loader)
+                    loader.start()
             
             # Название
             name_label = QLabel(w_engine.get('name', 'N/A'))
@@ -832,39 +996,20 @@ class ZZZProfilerQt(QMainWindow):
         return widget
     
     def create_core_skills_widget(self, level):
-        """Создание виджета Core Skills"""
+        """Создание виджета Core Skills с интерактивностью"""
         widget = QWidget()
         layout = QHBoxLayout(widget)
-        layout.setSpacing(5)
+        layout.setSpacing(6)
         layout.setContentsMargins(0, 5, 0, 5)
         
         letters = ['A', 'B', 'C', 'D', 'E', 'F']
+        
         for i, letter in enumerate(letters):
             is_unlocked = i < level
             
-            circle = QLabel(letter)
-            circle.setFixedSize(35, 35)
-            circle.setAlignment(Qt.AlignCenter)
-            
-            if is_unlocked:
-                circle.setStyleSheet(f"""
-                    background-color: {NEON_COLORS['border_neon']};
-                    color: {NEON_COLORS['background']};
-                    border: 2px solid {NEON_COLORS['border_neon']};
-                    border-radius: 17px;
-                    font-weight: bold;
-                    font-size: 14px;
-                """)
-            else:
-                circle.setStyleSheet(f"""
-                    background-color: {NEON_COLORS['card_bg']};
-                    color: {NEON_COLORS['text_secondary']};
-                    border: 2px solid {NEON_COLORS['text_secondary']};
-                    border-radius: 17px;
-                    font-size: 14px;
-                """)
-            
-            layout.addWidget(circle)
+            # Создаем кастомный виджет с интерактивностью
+            skill_widget = CoreSkillButton(letter, is_unlocked)
+            layout.addWidget(skill_widget)
         
         return widget
     
