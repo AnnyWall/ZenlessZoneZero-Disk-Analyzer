@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![PyQt5](https://img.shields.io/badge/PyQt5-5.15+-green.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+![License](https://img.shields.io/badge/license-GPL-3.0-green.svg)
 
 ---
 
