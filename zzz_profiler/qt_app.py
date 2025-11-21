@@ -170,84 +170,79 @@ class FetchThread(QThread):
             self.error.emit(str(e))
 
 
-class ImageLoader(QThread):
-    """Поток для загрузки изображений с кешированием"""
-    finished = pyqtSignal(QPixmap)
-    
-    # Директория для кеша
+class ImageManager:
+    """Глобальный менеджер загрузки изображений"""
     CACHE_DIR = os.path.join(os.path.dirname(__file__), '.image_cache')
+    _instance = None
+    _lock = threading.Lock()
     
-    # Общая сессия для всех загрузчиков с connection pooling
-    _session = None
-    _session_lock = threading.Lock()
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
     
-    @classmethod
-    def get_session(cls):
-        """Получить общую сессию с настройками"""
-        if cls._session is None:
-            with cls._session_lock:
-                if cls._session is None:
-                    from requests.adapters import HTTPAdapter
-                    from urllib3.util.retry import Retry
-                    
-                    cls._session = requests.Session()
-                    
-                    # Настройка retry стратегии
-                    retry_strategy = Retry(
-                        total=3,
-                        backoff_factor=1,
-                        status_forcelist=[429, 500, 502, 503, 504],
-                    )
-                    
-                    adapter = HTTPAdapter(
-                        max_retries=retry_strategy,
-                        pool_connections=10,
-                        pool_maxsize=20
-                    )
-                    
-                    cls._session.mount("http://", adapter)
-                    cls._session.mount("https://", adapter)
+    def __init__(self):
+        if self._initialized:
+            return
         
-        return cls._session
-    
-    def __init__(self, url, size=(64, 64), circular=False):
-        super().__init__()
-        self.url = url
-        self.size = size
-        self.circular = circular
+        self._initialized = True
+        self.session = self._create_session()
         
-        # Создаем директорию кеша если её нет
+        # Создаем директорию кеша
         if not os.path.exists(self.CACHE_DIR):
             os.makedirs(self.CACHE_DIR)
     
-    def get_cache_path(self):
+    def _create_session(self):
+        """Создать сессию с настройками"""
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        return session
+    
+    def get_cache_path(self, url):
         """Получить путь к кешированному файлу"""
         import hashlib
-        url_hash = hashlib.md5(self.url.encode()).hexdigest()
+        url_hash = hashlib.md5(url.encode()).hexdigest()
         return os.path.join(self.CACHE_DIR, f"{url_hash}.png")
     
-    def load_from_cache(self):
-        """Загрузить из кеша если есть"""
-        cache_path = self.get_cache_path()
+    def load_image(self, url, size=(100, 100)):
+        """Загрузить изображение (синхронно)"""
+        cache_path = self.get_cache_path(url)
+        
+        # Проверяем кеш
         if os.path.exists(cache_path):
             pixmap = QPixmap(cache_path)
             if not pixmap.isNull():
-                return pixmap
-        return None
-    
-    def save_to_cache(self, data):
-        """Сохранить в кеш"""
+                return pixmap.scaled(size[0], size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        
+        # Загружаем с сервера
         try:
-            cache_path = self.get_cache_path()
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            
+            # Сохраняем в кеш
             with open(cache_path, 'wb') as f:
-                f.write(data)
+                f.write(response.content)
+            
+            # Загружаем pixmap
+            pixmap = QPixmap()
+            if pixmap.loadFromData(response.content):
+                return pixmap.scaled(size[0], size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        
         except Exception as e:
-            print(f"[ImageLoader] Ошибка сохранения в кеш: {e}")
+            print(f"[ImageManager] Ошибка загрузки {url.split('/')[-1]}: {str(e)[:50]}")
+        
+        # Возвращаем placeholder
+        return self._create_placeholder(size)
     
-    def create_placeholder(self):
-        """Создать placeholder изображение"""
-        from PyQt5.QtGui import QPainter, QBrush
-        pixmap = QPixmap(self.size[0], self.size[1])
+    def _create_placeholder(self, size):
+        """Создать placeholder"""
+        from PyQt5.QtGui import QPainter
+        pixmap = QPixmap(size[0], size[1])
         pixmap.fill(QColor(NEON_COLORS['card_bg']))
         
         painter = QPainter(pixmap)
@@ -256,57 +251,21 @@ class ImageLoader(QThread):
         painter.end()
         
         return pixmap
+
+
+class ImageLoader(QThread):
+    """Асинхронный загрузчик изображений"""
+    finished = pyqtSignal(QPixmap)
+    
+    def __init__(self, url, size=(64, 64)):
+        super().__init__()
+        self.url = url
+        self.size = size
+        self.manager = ImageManager()
     
     def run(self):
-        try:
-            # Сначала проверяем кеш
-            cached_pixmap = self.load_from_cache()
-            if cached_pixmap:
-                pixmap = cached_pixmap
-            else:
-                # Загружаем с сервера используя общую сессию
-                session = self.get_session()
-                pixmap = None
-                
-                try:
-                    # Используем stream=True для постепенной загрузки
-                    # Очень большой таймаут для медленного сервера enka.network
-                    response = session.get(self.url, timeout=(10, 60), stream=True)
-                    response.raise_for_status()
-                    
-                    # Читаем контент постепенно
-                    content = b''
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            content += chunk
-                    
-                    # Сохраняем в кеш
-                    self.save_to_cache(content)
-                    
-                    pixmap = QPixmap()
-                    success = pixmap.loadFromData(content)
-                    
-                    if success and not pixmap.isNull():
-                        print(f"[ImageLoader] ✓ Загружено: {self.url.split('/')[-1]}")
-                    else:
-                        pixmap = self.create_placeholder()
-                        
-                except Exception as e:
-                    print(f"[ImageLoader] ✗ Ошибка: {self.url.split('/')[-1]} - {str(e)[:80]}")
-                    pixmap = self.create_placeholder()
-            
-            if pixmap is None or pixmap.isNull():
-                pixmap = self.create_placeholder()
-            
-            # Масштабируем
-            if not pixmap.isNull():
-                pixmap = pixmap.scaled(self.size[0], self.size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            
-            self.finished.emit(pixmap)
-            
-        except Exception as e:
-            print(f"[ImageLoader] Критическая ошибка: {e}")
-            self.finished.emit(self.create_placeholder())
+        pixmap = self.manager.load_image(self.url, self.size)
+        self.finished.emit(pixmap)
 
 
 class CardFrame(QFrame):
@@ -602,22 +561,63 @@ class ZZZProfilerQt(QMainWindow):
         scroll.setWidget(content)
         self.right_layout.addWidget(scroll)
     
+    def _apply_circular_mask(self, label, pixmap, size):
+        """Применить круглую маску к изображению"""
+        if pixmap.isNull():
+            return
+        
+        # Проверяем, что виджет еще существует
+        try:
+            if not label or label.isHidden():
+                return
+        except RuntimeError:
+            # Виджет уже удален
+            return
+        
+        from PyQt5.QtGui import QPainter, QPainterPath
+        
+        # Создаем круглое изображение
+        rounded = QPixmap(size, size)
+        rounded.fill(Qt.transparent)
+        
+        painter = QPainter(rounded)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        
+        # Создаем круглую маску
+        path = QPainterPath()
+        path.addEllipse(0, 0, size, size)
+        painter.setClipPath(path)
+        
+        # Рисуем изображение, масштабируя его до размера круга
+        # Используем drawPixmap с целевым прямоугольником для заполнения
+        painter.drawPixmap(0, 0, size, size, pixmap)
+        painter.end()
+        
+        try:
+            label.setPixmap(rounded)
+        except RuntimeError:
+            # Виджет был удален во время обработки
+            pass
+    
     def create_agent_header(self, layout, agent):
         """Создание заголовка агента"""
         header = CardFrame(NEON_COLORS['border_neon'])
         header_layout = QHBoxLayout(header)
         
-        # Иконка агента (круглая через CSS)
+        # Иконка агента (круглая)
         icon_container = QLabel()
         icon_container.setFixedSize(64, 64)
         icon_container.setAlignment(Qt.AlignCenter)
         icon_container.setStyleSheet("""
             QLabel {
-                border: 2px solid #00E5FF;
+                border: 3px solid #00E5FF;
                 border-radius: 32px;
                 background-color: #1E2433;
             }
         """)
+        # Включаем маску для обрезки содержимого
+        icon_container.setScaledContents(True)
         header_layout.addWidget(icon_container)
         
         # Пробуем разные варианты структуры данных для иконки
@@ -629,60 +629,18 @@ class ZZZProfilerQt(QMainWindow):
             icon_url = icon_data
         
         if icon_url:
-            # Сначала проверяем кеш синхронно (быстро)
-            import hashlib
-            cache_dir = os.path.join(os.path.dirname(__file__), '.image_cache')
-            url_hash = hashlib.md5(icon_url.encode()).hexdigest()
-            cache_path = os.path.join(cache_dir, f"{url_hash}.png")
+            # Загружаем через менеджер (большого размера для заполнения круга)
+            manager = ImageManager()
+            cache_path = manager.get_cache_path(icon_url)
             
             if os.path.exists(cache_path):
                 # Из кеша - мгновенно
-                pixmap = QPixmap(cache_path)
-                if not pixmap.isNull():
-                    pixmap = pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    
-                    from PyQt5.QtGui import QPainter, QPainterPath
-                    rounded = QPixmap(60, 60)
-                    rounded.fill(Qt.transparent)
-                    
-                    painter = QPainter(rounded)
-                    painter.setRenderHint(QPainter.Antialiasing)
-                    
-                    path = QPainterPath()
-                    path.addEllipse(0, 0, 60, 60)
-                    painter.setClipPath(path)
-                    
-                    x = (60 - pixmap.width()) // 2
-                    y = (60 - pixmap.height()) // 2
-                    painter.drawPixmap(x, y, pixmap)
-                    painter.end()
-                    
-                    icon_container.setPixmap(rounded)
+                pixmap = manager.load_image(icon_url, (150, 150))
+                self._apply_circular_mask(icon_container, pixmap, 60)
             else:
-                # Нет в кеше - загружаем асинхронно
-                loader = ImageLoader(icon_url, (60, 60), circular=False)
-                
-                def set_agent_icon(pixmap):
-                    if not pixmap.isNull():
-                        from PyQt5.QtGui import QPainter, QPainterPath
-                        rounded = QPixmap(60, 60)
-                        rounded.fill(Qt.transparent)
-                        
-                        painter = QPainter(rounded)
-                        painter.setRenderHint(QPainter.Antialiasing)
-                        
-                        path = QPainterPath()
-                        path.addEllipse(0, 0, 60, 60)
-                        painter.setClipPath(path)
-                        
-                        x = (60 - pixmap.width()) // 2
-                        y = (60 - pixmap.height()) // 2
-                        painter.drawPixmap(x, y, pixmap)
-                        painter.end()
-                        
-                        icon_container.setPixmap(rounded)
-                
-                loader.finished.connect(set_agent_icon)
+                # Асинхронная загрузка
+                loader = ImageLoader(icon_url, (150, 150))
+                loader.finished.connect(lambda p: self._apply_circular_mask(icon_container, p, 60))
                 self.image_loaders.append(loader)
                 loader.start()
         
@@ -876,7 +834,7 @@ class ZZZProfilerQt(QMainWindow):
                         icon_label.setPixmap(pixmap)
                 else:
                     # Нет в кеше - загружаем асинхронно
-                    loader = ImageLoader(icon_url, (110, 110), circular=False)
+                    loader = ImageLoader(icon_url, (110, 110))
                     loader.finished.connect(icon_label.setPixmap)
                     self.image_loaders.append(loader)
                     loader.start()
