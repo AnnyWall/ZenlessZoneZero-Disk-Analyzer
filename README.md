@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![PyQt5](https://img.shields.io/badge/PyQt5-5.15+-green.svg)
-![License](https://img.shields.io/badge/license-GPL-3.0-green.svg)
+![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)
 
 ---
 
@@ -243,7 +243,7 @@ Contributions are welcome! Feel free to create Issues and Pull Requests.
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file
+GPL-3.0 License - see [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
