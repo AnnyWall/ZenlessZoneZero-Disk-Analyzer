@@ -10,7 +10,7 @@ import time
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget, QScrollArea,
-    QFrame, QGridLayout, QSizePolicy
+    QFrame, QGridLayout, QSizePolicy, QDialog, QComboBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QPixmap, QPalette, QColor, QIcon
@@ -26,9 +26,13 @@ else:
 try:
     from zzz_profiler.config import AGENT_METADATA, STAT_NORMALIZATION_VALUES, DISK_SET_NAMES
     from zzz_profiler.run import run_server
+    from zzz_profiler.localization import Localization
+    from zzz_profiler.settings_dialog import SettingsDialog
 except ImportError:
     AGENT_METADATA, STAT_NORMALIZATION_VALUES, DISK_SET_NAMES = {}, {}, {}
     run_server = None
+    Localization = None
+    SettingsDialog = None
 
 # Неоновая цветовая палитра
 NEON_COLORS = {
@@ -361,8 +365,26 @@ class CoreSkillButton(QWidget):
 
 
 class ZZZProfilerQt(QMainWindow):
+    def load_language_setting(self):
+        """Загрузить настройку языка"""
+        try:
+            import json
+            config_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    settings = json.load(f)
+                    return settings.get('language', 'ru')
+        except Exception as e:
+            print(f"Ошибка загрузки настроек: {e}")
+        return 'ru'
+    
     def __init__(self):
         super().__init__()
+        
+        # Инициализация локализации с загрузкой сохраненного языка
+        saved_lang = self.load_language_setting()
+        self.localization = Localization(saved_lang) if Localization else None
+        
         self.setWindowTitle("⚡ ZZZ Profiler")
         self.setGeometry(100, 100, 1400, 900)
         
@@ -398,27 +420,64 @@ class ZZZProfilerQt(QMainWindow):
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Заголовок
-        title = QLabel("⚡ ZZZ PROFILER")
-        title.setAlignment(Qt.AlignCenter)
+        # Заголовок с кнопкой настроек
+        title_container = QWidget()
+        title_container.setStyleSheet(f"""
+            background-color: {NEON_COLORS['card_bg']};
+            border-radius: 10px;
+        """)
+        title_layout = QHBoxLayout(title_container)
+        title_layout.setContentsMargins(15, 15, 15, 15)
+        
+        title_text = self.localization.get('app_title') if self.localization else "⚡ ZZZ PROFILER"
+        title = QLabel(title_text)
         title.setStyleSheet(f"""
             font-size: 20px;
             font-weight: bold;
             color: {NEON_COLORS['text_neon']};
-            padding: 15px;
-            background-color: {NEON_COLORS['card_bg']};
-            border-radius: 10px;
         """)
-        left_layout.addWidget(title)
+        title_layout.addWidget(title)
+        
+        title_layout.addStretch()
+        
+        # Кнопка настроек
+        settings_btn = QPushButton("⚙️")
+        settings_btn.setFixedSize(40, 40)
+        settings_btn.setToolTip("Настройки")
+        settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {NEON_COLORS['border_neon']}, 
+                    stop:1 {NEON_COLORS['accent_purple']});
+                border: none;
+                border-radius: 20px;
+                font-size: 18px;
+                color: {NEON_COLORS['background']};
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {NEON_COLORS['text_neon']}, 
+                    stop:1 {NEON_COLORS['accent_pink']});
+            }}
+            QPushButton:pressed {{
+                background-color: {NEON_COLORS['accent_purple']};
+            }}
+        """)
+        settings_btn.clicked.connect(self.open_settings)
+        title_layout.addWidget(settings_btn)
+        
+        left_layout.addWidget(title_container)
         
         # Поле ввода UID
         input_layout = QHBoxLayout()
         self.uid_input = QLineEdit()
-        self.uid_input.setPlaceholderText("Введите UID...")
+        placeholder = self.localization.get('search_placeholder') if self.localization else "Введите UID..."
+        self.uid_input.setPlaceholderText(placeholder)
         self.uid_input.returnPressed.connect(self.fetch_profile)
         input_layout.addWidget(self.uid_input)
         
-        search_btn = QPushButton("🔍")
+        search_btn_text = self.localization.get('search_button') if self.localization else "🔍"
+        search_btn = QPushButton(search_btn_text)
         search_btn.setFixedWidth(45)
         search_btn.clicked.connect(self.fetch_profile)
         input_layout.addWidget(search_btn)
@@ -436,7 +495,8 @@ class ZZZProfilerQt(QMainWindow):
         left_layout.addWidget(self.player_label)
         
         # Список агентов
-        agents_label = QLabel("👥 АГЕНТЫ")
+        agents_text = self.localization.get('agents_title') if self.localization else "👥 АГЕНТЫ"
+        agents_label = QLabel(agents_text)
         agents_label.setStyleSheet(f"""
             font-size: 16px;
             font-weight: bold;
@@ -463,7 +523,8 @@ class ZZZProfilerQt(QMainWindow):
         welcome = CardFrame(NEON_COLORS['border_neon'])
         welcome_layout = QVBoxLayout(welcome)
         
-        welcome_title = QLabel("⚡ ZZZ PROFILER ⚡")
+        welcome_title_text = self.localization.get('welcome_title') if self.localization else "⚡ ZZZ PROFILER ⚡"
+        welcome_title = QLabel(welcome_title_text)
         welcome_title.setAlignment(Qt.AlignCenter)
         welcome_title.setStyleSheet(f"""
             font-size: 28px;
@@ -472,7 +533,8 @@ class ZZZProfilerQt(QMainWindow):
         """)
         welcome_layout.addWidget(welcome_title)
         
-        welcome_text = QLabel("Введите UID и выберите агента\nдля просмотра детальной информации")
+        welcome_text_content = self.localization.get('welcome_text') if self.localization else "Введите UID и выберите агента\nдля просмотра детальной информации"
+        welcome_text = QLabel(welcome_text_content)
         welcome_text.setAlignment(Qt.AlignCenter)
         welcome_text.setStyleSheet(f"color: {NEON_COLORS['text_secondary']}; font-size: 14px;")
         welcome_layout.addWidget(welcome_text)
@@ -488,7 +550,8 @@ class ZZZProfilerQt(QMainWindow):
         if not uid:
             return
         
-        self.player_label.setText("Загрузка...")
+        loading_text = self.localization.get('loading') if self.localization else "Загрузка..."
+        self.player_label.setText(loading_text)
         self.agent_list.clear()
         
         self.fetch_thread = FetchThread(uid)
@@ -518,12 +581,51 @@ class ZZZProfilerQt(QMainWindow):
     
     def on_profile_error(self, error):
         """Обработка ошибки загрузки"""
-        self.player_label.setText(f"Ошибка: {error}")
+        error_text = self.localization.get('error') if self.localization else "Ошибка"
+        self.player_label.setText(f"{error_text}: {error}")
     
     def on_agent_selected(self, item):
         """Обработка выбора агента"""
         index = self.agent_list.row(item)
         self.show_agent_details(index)
+    
+    def open_settings(self):
+        """Открыть диалог настроек"""
+        if not SettingsDialog or not self.localization:
+            return
+        
+        dialog = SettingsDialog(self.localization, self)
+        dialog.language_changed.connect(self.change_language)
+        dialog.exec_()
+    
+    def change_language(self, language):
+        """Изменить язык интерфейса"""
+        if self.localization:
+            self.localization.set_language(language)
+            # Сохраняем настройку
+            self.save_language_setting(language)
+            # Перезапускаем приложение
+            self.restart_application()
+    
+    def save_language_setting(self, language):
+        """Сохранить настройку языка"""
+        try:
+            import json
+            config_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+            with open(config_path, 'w') as f:
+                json.dump({'language': language}, f)
+        except Exception as e:
+            print(f"Ошибка сохранения настроек: {e}")
+    
+    def restart_application(self):
+        """Перезапустить приложение"""
+        try:
+            import subprocess
+            # Закрываем текущее приложение и запускаем новое
+            QApplication.quit()
+            subprocess.Popen([sys.executable] + sys.argv)
+        except Exception as e:
+            print(f"Ошибка перезапуска: {e}")
     
     def show_agent_details(self, index):
         """Отображение деталей агента"""
@@ -649,7 +751,10 @@ class ZZZProfilerQt(QMainWindow):
         
         # Имя и ранг
         name_layout = QHBoxLayout()
-        name_label = QLabel(agent.get('name', 'N/A'))
+        agent_name = agent.get('name', 'N/A')
+        # Переводим имя агента
+        agent_name_translated = self.localization.get(agent_name, agent_name) if self.localization else agent_name
+        name_label = QLabel(agent_name_translated)
         name_label.setStyleSheet(f"""
             font-size: 24px;
             font-weight: bold;
@@ -679,16 +784,20 @@ class ZZZProfilerQt(QMainWindow):
         }
         specialty = meta.get('specialty', 'N/A')
         specialty_icon = specialty_icons.get(specialty, '❓')
+        # Переводим специальность
+        specialty_translated = self.localization.get(specialty, specialty) if self.localization else specialty
         
         rarity = agent.get('rarity', 'S')
         rarity_display = f"[{rarity}]" if isinstance(rarity, str) else '⭐' * int(rarity)
         
-        meta_label = QLabel(f"Ур. {agent.get('level')} | {specialty_icon} {specialty} | {rarity_display}")
+        level_text = self.localization.get('level') if self.localization else "Ур."
+        meta_label = QLabel(f"{level_text} {agent.get('level')} | {specialty_icon} {specialty_translated} | {rarity_display}")
         meta_label.setStyleSheet(f"color: {NEON_COLORS['text_secondary']};")
         info_layout.addWidget(meta_label)
         
         # Общий счет
-        score_label = QLabel(f"⭐ Общий счет: {agent.get('total_score', 'N/A')}")
+        score_text = self.localization.get('total_score') if self.localization else "⭐ Общий счет"
+        score_label = QLabel(f"{score_text}: {agent.get('total_score', 'N/A')}")
         score_label.setStyleSheet(f"""
             font-size: 16px;
             font-weight: bold;
@@ -728,7 +837,8 @@ class ZZZProfilerQt(QMainWindow):
         card_layout = QVBoxLayout(card)
         
         # Заголовок
-        title = QLabel("⚡ ХАРАКТЕРИСТИКИ")
+        title_text = self.localization.get('stats_title') if self.localization else "⚡ ХАРАКТЕРИСТИКИ"
+        title = QLabel(title_text)
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"""
             font-size: 16px;
@@ -790,7 +900,8 @@ class ZZZProfilerQt(QMainWindow):
         card_layout = QVBoxLayout(card)
         
         # Заголовок
-        title = QLabel("⚙️ W-ENGINE")
+        title_text = self.localization.get('w_engine_title') if self.localization else "⚙️ W-ENGINE"
+        title = QLabel(title_text)
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"""
             font-size: 16px;
@@ -880,7 +991,8 @@ class ZZZProfilerQt(QMainWindow):
         card_layout = QVBoxLayout(card)
         
         # Заголовок
-        title = QLabel("✨ ПРОГРЕСС АГЕНТА")
+        title_text = self.localization.get('progress_title') if self.localization else "✨ ПРОГРЕСС АГЕНТА"
+        title = QLabel(title_text)
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"""
             font-size: 16px;
@@ -891,7 +1003,8 @@ class ZZZProfilerQt(QMainWindow):
         card_layout.addWidget(title)
         
         # Mindscape
-        mindscape_label = QLabel("🌟 Mindscape (Созвездия)")
+        mindscape_text = self.localization.get('mindscape') if self.localization else "🌟 Mindscape (Созвездия)"
+        mindscape_label = QLabel(mindscape_text)
         mindscape_label.setStyleSheet(f"color: {NEON_COLORS['accent_purple']}; font-weight: bold; font-size: 13px;")
         card_layout.addWidget(mindscape_label)
         
@@ -899,7 +1012,8 @@ class ZZZProfilerQt(QMainWindow):
         card_layout.addWidget(mindscape_widget)
         
         # Core Skills
-        core_label = QLabel("💎 Core Skill (Пассивки)")
+        core_text = self.localization.get('core_skills') if self.localization else "💎 Core Skill (Пассивки)"
+        core_label = QLabel(core_text)
         core_label.setStyleSheet(f"color: {NEON_COLORS['border_neon']}; font-weight: bold; font-size: 13px; margin-top: 10px;")
         card_layout.addWidget(core_label)
         
@@ -907,7 +1021,8 @@ class ZZZProfilerQt(QMainWindow):
         card_layout.addWidget(core_widget)
         
         # Боевые навыки
-        skills_label = QLabel("⚔️ Боевые навыки")
+        skills_text = self.localization.get('battle_skills') if self.localization else "⚔️ Боевые навыки"
+        skills_label = QLabel(skills_text)
         skills_label.setStyleSheet(f"color: {NEON_COLORS['text_main']}; font-weight: bold; font-size: 13px; margin-top: 10px;")
         card_layout.addWidget(skills_label)
         
@@ -1040,7 +1155,8 @@ class ZZZProfilerQt(QMainWindow):
     def create_disks_section(self, layout, agent):
         """Создание секции дисков"""
         # Заголовок (просто текст, без рамки)
-        disks_title = QLabel("💿 ДИСКИ")
+        disks_text = self.localization.get('disks_title') if self.localization else "💿 ДИСКИ"
+        disks_title = QLabel(disks_text)
         disks_title.setAlignment(Qt.AlignCenter)
         disks_title.setStyleSheet(f"""
             font-size: 20px;
@@ -1082,8 +1198,11 @@ class ZZZProfilerQt(QMainWindow):
         # Заголовок
         set_id = disc.get('set_id')
         set_name = DISK_SET_NAMES.get(set_id, disc.get('set_name', f"Set ID {set_id}"))
+        # Переводим название диска
+        set_name_translated = self.localization.get(set_name, set_name) if self.localization else set_name
         
-        title = QLabel(f"💎 Диск {index + 1}: {set_name}")
+        disk_text = self.localization.get('disk') if self.localization else "Диск"
+        title = QLabel(f"💎 {disk_text} {index + 1}: {set_name_translated}")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"font-weight: bold; color: {NEON_COLORS['text_main']}; font-size: 13px;")
         title.setWordWrap(True)
