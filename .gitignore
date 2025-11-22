@@ -47,6 +47,9 @@ desktop.ini
 *.cache
 .image_cache/
 
+# Settings
+zzz_profiler/settings.json
+
 # Build artifacts (keep build.bat and .spec)
 # build.bat - keep for building
 # ZZZ_Profiler.spec - keep for building

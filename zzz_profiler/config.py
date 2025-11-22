@@ -143,8 +143,24 @@ AGENT_RANK_THRESHOLDS = [
 ]
 
 DISK_SET_NAMES = {
-    31000: "Thunder-wielding Heavyweight", 31100: "Peacemaker's Provisions",
-    31300: "Hot-Blooded Striker", 32200: "Monsoon Mood", 32400: "Twisted Mind",
-    32600: "Improvisational Dance", 32700: "Reverberating Metallic",
-    33000: "Talon of the Chimera", 33100: "Woodpecker Electro"
+    31000: "Thunder Metal",
+    31100: "Swing Jazz",
+    31200: "Fanged Metal",
+    31300: "Woodpecker Electro",
+    31400: "Puffer Electro",
+    31500: "Polar Metal",
+    31600: "Shockstar Disco",
+    31800: "Hormone Punk",
+    31900: "Freedom Blues",
+    32200: "Shadow Harmony",
+    32300: "Chaotic Metal",
+    32400: "Inferno Metal",
+    32500: "Astral Voice",
+    32600: "Soul Rock",
+    32700: "Phaethon's Melody",
+    32800: "Proto Punk",
+    32900: "Branch & Blade Song",
+    33000: "Chaos Jazz",
+    33100: "Astra Yao",
+    33200: "Dawn's Bloom"
 }
