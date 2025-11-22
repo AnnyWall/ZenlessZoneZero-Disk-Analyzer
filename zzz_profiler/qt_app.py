@@ -365,18 +365,29 @@ class CoreSkillButton(QWidget):
 
 
 class ZZZProfilerQt(QMainWindow):
+    def get_settings_path(self):
+        """Получить путь к файлу настроек рядом с exe"""
+        if getattr(sys, 'frozen', False):
+            # Если запущен как exe (PyInstaller)
+            application_path = os.path.dirname(sys.executable)
+        else:
+            # Если запущен как скрипт
+            application_path = os.path.dirname(os.path.abspath(__file__))
+        
+        return os.path.join(application_path, 'settings.json')
+    
     def load_language_setting(self):
         """Загрузить настройку языка"""
         try:
             import json
-            config_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+            config_path = self.get_settings_path()
             if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
+                with open(config_path, 'r', encoding='utf-8') as f:
                     settings = json.load(f)
-                    return settings.get('language', 'ru')
+                    return settings.get('language', 'en')
         except Exception as e:
             print(f"Ошибка загрузки настроек: {e}")
-        return 'ru'
+        return 'en'
     
     def __init__(self):
         super().__init__()
@@ -442,7 +453,7 @@ class ZZZProfilerQt(QMainWindow):
         
         # Кнопка настроек
         settings_btn = QPushButton("⚙️")
-        settings_btn.setFixedSize(40, 40)
+        settings_btn.setFixedSize(44, 44)
         settings_btn.setToolTip("Настройки")
         settings_btn.setStyleSheet(f"""
             QPushButton {{
@@ -450,9 +461,11 @@ class ZZZProfilerQt(QMainWindow):
                     stop:0 {NEON_COLORS['border_neon']}, 
                     stop:1 {NEON_COLORS['accent_purple']});
                 border: none;
-                border-radius: 20px;
-                font-size: 18px;
+                border-radius: 22px;
+                font-size: 20px;
                 color: {NEON_COLORS['background']};
+                padding: 0px;
+                text-align: center;
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -604,28 +617,54 @@ class ZZZProfilerQt(QMainWindow):
             self.localization.set_language(language)
             # Сохраняем настройку
             self.save_language_setting(language)
-            # Перезапускаем приложение
-            self.restart_application()
+            # Показываем сообщение о необходимости перезапуска
+            self.show_restart_message(language)
     
     def save_language_setting(self, language):
         """Сохранить настройку языка"""
         try:
             import json
-            config_path = os.path.join(os.path.dirname(__file__), 'settings.json')
-            with open(config_path, 'w') as f:
-                json.dump({'language': language}, f)
+            config_path = self.get_settings_path()
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump({'language': language}, f, indent=2)
         except Exception as e:
             print(f"Ошибка сохранения настроек: {e}")
     
-    def restart_application(self):
-        """Перезапустить приложение"""
-        try:
-            import subprocess
-            # Закрываем текущее приложение и запускаем новое
-            QApplication.quit()
-            subprocess.Popen([sys.executable] + sys.argv)
-        except Exception as e:
-            print(f"Ошибка перезапуска: {e}")
+    def show_restart_message(self, language):
+        """Показать сообщение о необходимости перезапуска"""
+        from PyQt5.QtWidgets import QMessageBox
+        
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Language Changed" if language == 'en' else "Язык изменен")
+        
+        if language == 'en':
+            msg.setText("Language has been changed to English.\n\nPlease restart the application for changes to take effect.")
+        else:
+            msg.setText("Язык изменен на русский.\n\nПожалуйста, перезапустите приложение для применения изменений.")
+        
+        msg.setIcon(QMessageBox.Information)
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.setStyleSheet(f"""
+            QMessageBox {{
+                background-color: {NEON_COLORS['panel_bg']};
+            }}
+            QMessageBox QLabel {{
+                color: {NEON_COLORS['text_main']};
+                font-size: 14px;
+            }}
+            QPushButton {{
+                background-color: {NEON_COLORS['border_neon']};
+                color: {NEON_COLORS['background']};
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {NEON_COLORS['text_neon']};
+            }}
+        """)
+        msg.exec_()
     
     def show_agent_details(self, index):
         """Отображение деталей агента"""
