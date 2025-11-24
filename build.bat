@@ -1,21 +1,18 @@
 @echo off
 chcp 65001 >nul
-REM =================================================================
-REM ==        ZZZ Profiler Build Script v6.0 (PyQt5)             ==
-REM =================================================================
 title Building ZZZ Profiler...
 
-echo ⚡ ZZZ Profiler - Build Script (PyQt5)
+echo ZZZ Profiler - Build Script (PyQt5)
 echo ========================================
 echo.
 
-echo [1/5] Очистка старых сборок...
+echo [1/5] Cleaning old builds...
 if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
-echo ✓ Готово
+echo Done
 echo.
 
-echo [2/5] Проверка зависимостей...
+echo [2/5] Checking dependencies...
 pip show pyinstaller >nul 2>nul
 if %errorlevel% neq 0 (
     echo Installing PyInstaller...
@@ -26,10 +23,10 @@ if %errorlevel% neq 0 (
     echo Installing PyQt5...
     pip install PyQt5
 )
-echo ✓ Зависимости готовы
+echo Dependencies ready
 echo.
 
-echo [3/5] Обновление .spec файла...
+echo [3/5] Updating .spec file...
 (
 echo # -*- mode: python ; coding: utf-8 -*-
 echo.
@@ -78,36 +75,36 @@ echo     codesign_identity=None,
 echo     entitlements_file=None,
 echo ^)
 ) > ZZZ_Profiler.spec
-echo ✓ Spec файл обновлен
+echo Spec file updated
 echo.
 
-echo [4/5] Сборка приложения...
-echo Это может занять несколько минут...
+echo [4/5] Building application...
+echo This may take several minutes...
 echo.
 pyinstaller --clean --noconfirm ZZZ_Profiler.spec
 
 if %errorlevel% neq 0 (
     echo.
-    echo ❌ ОШИБКА: Сборка завершилась с ошибкой
+    echo ERROR: Build failed
     echo.
     pause
     goto :EOF
 )
 
 echo.
-echo [5/5] Очистка временных файлов...
+echo [5/5] Cleaning temporary files...
 if exist build rmdir /s /q build
-echo ✓ Готово
+echo Done
 echo.
 
 echo ========================================
-echo ✓ Сборка успешно завершена!
+echo Build completed successfully!
 echo.
-echo 📦 Файл: dist\ZZZ_Profiler.exe
-echo 📁 Размер: 
+echo File: dist\ZZZ_Profiler.exe
+echo Size: 
 dir dist\ZZZ_Profiler.exe | find "ZZZ_Profiler.exe"
 echo.
-echo 🎨 Версия: PyQt5 (оптимизированная)
-echo 🚀 Готово к использованию!
+echo Version: PyQt5 (optimized)
+echo Ready to use!
 echo ========================================
 pause
