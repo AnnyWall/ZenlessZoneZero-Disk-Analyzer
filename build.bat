@@ -44,7 +44,10 @@ echo     ],
 echo     hookspath=[],
 echo     hooksconfig={},
 echo     runtime_hooks=[],
-echo     excludes=['customtkinter', 'tkinter'],
+echo     excludes=[
+echo         'customtkinter', 'tkinter', 'matplotlib', 'numpy', 
+echo         'pandas', 'scipy', 'IPython', 'jupyter'
+echo     ],
 echo     win_no_prefer_redirects=False,
 echo     win_private_assemblies=False,
 echo     cipher=block_cipher,
@@ -56,23 +59,27 @@ echo.
 echo exe = EXE^(
 echo     pyz,
 echo     a.scripts,
-echo     a.binaries,
-echo     a.zipfiles,
-echo     a.datas,
 echo     [],
+echo     exclude_binaries=True,
 echo     name='ZZZ_Profiler',
 echo     debug=False,
 echo     bootloader_ignore_signals=False,
 echo     strip=False,
 echo     upx=True,
-echo     upx_exclude=[],
-echo     runtime_tmpdir=None,
 echo     console=False,
 echo     disable_windowed_traceback=False,
-echo     argv_emulation=False,
-echo     target_arch=None,
-echo     codesign_identity=None,
-echo     entitlements_file=None,
+echo     icon=None,
+echo ^)
+echo.
+echo coll = COLLECT^(
+echo     exe,
+echo     a.binaries,
+echo     a.zipfiles,
+echo     a.datas,
+echo     strip=False,
+echo     upx=True,
+echo     upx_exclude=[],
+echo     name='ZZZ_Profiler',
 echo ^)
 ) > ZZZ_Profiler.spec
 echo Spec file updated
@@ -100,11 +107,12 @@ echo.
 echo ========================================
 echo Build completed successfully!
 echo.
-echo File: dist\ZZZ_Profiler.exe
-echo Size: 
-dir dist\ZZZ_Profiler.exe | find "ZZZ_Profiler.exe"
+echo Folder: dist\ZZZ_Profiler\
+echo Executable: dist\ZZZ_Profiler\ZZZ_Profiler.exe
 echo.
-echo Version: PyQt5 (optimized)
+echo Version: PyQt5 (optimized - fast startup)
 echo Ready to use!
+echo.
+echo Note: Distribute the entire ZZZ_Profiler folder
 echo ========================================
 pause
