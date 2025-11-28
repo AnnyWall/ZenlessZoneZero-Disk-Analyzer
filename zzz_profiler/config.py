@@ -70,6 +70,7 @@ STAT_WEIGHTS = {
     'Seed': { 'Percent ATK': 1.5, 'CRIT Rate': 2.0, 'CRIT DMG': 2.0, 'PEN Ratio': 1, 'Energy Regen': 0, 'Impact': 0, 'ATK': 0.5, 'PEN': 1, 'Anomaly Mastery': 0, 'Anomaly Proficiency': 0, 'Sheer Force': 0.0, 'HP': 0.0, 'Percent HP': 0.0, 'DEF': 0.0, 'Percent DEF': 0.0 },
     'Trigger': { 'Percent ATK': 1, 'CRIT Rate': 2.0, 'CRIT DMG': 1.5, 'PEN Ratio': 0.5, 'Energy Regen': 0, 'Impact': 0, 'ATK': 0.5, 'PEN': 0.5, 'Anomaly Mastery': 0, 'Anomaly Proficiency': 0, 'Sheer Force': 0.0, 'HP': 0.0, 'Percent HP': 0.0, 'DEF': 0.0, 'Percent DEF': 0.0 },
     'Yanagi': { 'Percent ATK': 1.5, 'CRIT Rate': 0, 'CRIT DMG': 0, 'PEN Ratio': 1, 'Energy Regen': 0, 'Impact': 0, 'ATK': 1, 'PEN': 1, 'Anomaly Mastery': 0, 'Anomaly Proficiency': 2, 'Sheer Force': 0.0, 'HP': 0.0, 'Percent HP': 0.0, 'DEF': 0.0, 'Percent DEF': 0.0 },
+    'Dialyn': { 'Percent ATK': 1.5, 'CRIT Rate': 2, 'CRIT DMG': 1.5, 'PEN Ratio': 1, 'Energy Regen': 0, 'Impact': 0, 'ATK': 0.5, 'PEN': 1, 'Anomaly Mastery': 0, 'Anomaly Proficiency': 0, 'Sheer Force': 0.0, 'HP': 0.0, 'Percent HP': 0.0, 'DEF': 0.0, 'Percent DEF': 0.0 },
     
 }
 
